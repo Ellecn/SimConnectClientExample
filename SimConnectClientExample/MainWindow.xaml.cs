@@ -1,21 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using System.Runtime.InteropServices;
 using Microsoft.FlightSimulator.SimConnect;
 using System.Windows.Threading;
 using System.ComponentModel;
+using System.Windows.Interop;
 
 namespace SimConnectClientExample
 {
@@ -24,6 +13,8 @@ namespace SimConnectClientExample
     /// </summary>
     public partial class MainWindow : Window
     {
+        private IntPtr handle;
+
         private SimConnect? simConnect;
         private const int WM_USER_SIMCONNECT = 0x402;
 
@@ -31,11 +22,20 @@ namespace SimConnectClientExample
         {
             InitializeComponent();
             SetUi(false);
-
             DispatcherTimer timer = new DispatcherTimer();
-            timer.Interval = TimeSpan.FromSeconds(3);
+            timer.Interval = TimeSpan.FromSeconds(1);
             timer.Tick += timer_Tick;
             timer.Start();
+        }
+
+        protected override void OnSourceInitialized(EventArgs e)
+        {
+            base.OnSourceInitialized(e);
+
+            handle = new WindowInteropHelper(this).Handle;
+
+            HwndSource handleSource = HwndSource.FromHwnd(handle);
+            handleSource.AddHook(HandleSimConnectEvents);
         }
 
         private void btnConnect_Click(object sender, RoutedEventArgs e)
@@ -54,7 +54,7 @@ namespace SimConnectClientExample
             {
                 try
                 {
-                    simConnect = new SimConnect("Managed Data Request", (IntPtr)null, WM_USER_SIMCONNECT, null, 0);
+                    simConnect = new SimConnect("Managed Data Request", handle, WM_USER_SIMCONNECT, null, 0);
 
                     simConnect.OnRecvOpen += new SimConnect.RecvOpenEventHandler(OnRecvOpen);
                     simConnect.OnRecvQuit += new SimConnect.RecvQuitEventHandler(OnRecvQuit);
@@ -92,7 +92,6 @@ namespace SimConnectClientExample
                 try
                 {
                     simConnect.RequestDataOnSimObjectType(DATA_REQUESTS.REQUEST_1, DEFINITIONS.RequestedData, 0, SIMCONNECT_SIMOBJECT_TYPE.USER);
-                    simConnect.ReceiveMessage();
                 }
                 catch (Exception exception)
                 {
@@ -100,6 +99,22 @@ namespace SimConnectClientExample
                     Disconnect();
                 }
             }
+        }
+
+        private IntPtr HandleSimConnectEvents(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam, ref bool isHandled)
+        {
+            isHandled = false;
+
+            if (message == WM_USER_SIMCONNECT)
+            {
+                if (simConnect != null)
+                {
+                    simConnect.ReceiveMessage();
+                    isHandled = true;
+                }
+            }
+
+            return IntPtr.Zero;
         }
 
         void Window_Closing(object sender, CancelEventArgs e)
@@ -112,6 +127,14 @@ namespace SimConnectClientExample
             lblStatus.Content = connected ? "Connected to sim" : "Not connected to sim";
             btnDisconnect.IsEnabled = connected;
             btnConnect.IsEnabled = !connected;
+            if (!connected)
+            {
+                txtPlane.Text = string.Empty;
+                txtLatitude.Text = string.Empty;
+                txtLongitude.Text = string.Empty;
+                txtTrueHeading.Text = string.Empty;
+                txtGroundAltitude.Text = string.Empty;
+            }
         }
 
         private void AppendToErrorLog(string message)
